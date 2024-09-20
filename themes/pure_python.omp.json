@@ -42,6 +42,12 @@
         },
         {
           "type": "python",
+          "style": "plain",
+          "template": "\n ↳ " 
+        },
+        {
+          "type": "python",
+          "alias": "show_venv",
           "style": "powerline",
           "powerline_symbol": "",
           "foreground": "#100e23",
@@ -49,6 +55,18 @@
           "template": " \uE235 {{ .Full }} {{ if .Venv }}{{ .Venv }}{{ end }}",
           "properties": {
               "fetch_virtual_env": true
+          }
+        },
+        {
+          "type": "command",
+          "alias": "get_hatch_env",
+          "style": "powerline",
+          "powerline_symbol": "",
+          "background": "#ff5f00",
+          "foreground": "#100e23",
+          "template": " Hatch env: {{.Output }}",
+          "properties": {
+            "command": "echo $HATCH_ACTIVE_ENV"
           }
         }
       ],
