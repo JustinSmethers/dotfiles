@@ -8,6 +8,9 @@
           "foreground": "#BF616A",
           "style": "plain",
           "template": "{{ .UserName }} ",
+          "properties": {
+            "always_enabled": true
+          },
           "type": "session"
         },
         {
