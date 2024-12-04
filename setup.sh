@@ -37,6 +37,7 @@ REQUIRED_PACKAGES=(
     "wget"
     "tmux"
     "neovim"
+    "unzip"
 )
 
 # Array to store preview actions
@@ -113,6 +114,17 @@ detect_os() {
     fi
 }
 
+setup_kickstart() {
+    if [ "$DRY_RUN" = true ]; then
+        echo "[DRY RUN] Would setup kickstart.nvim"
+        return
+    fi
+
+    echo "Setting up kickstart.nvim..."
+    rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+    git clone https://github.com/nvim-lua/kickstart.nvim.git "${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+}
+
 # Function to check required packages
 check_packages() {
     local packages_to_install=()
@@ -160,6 +172,9 @@ check_bashrc_modifications() {
     if ! grep -q "oh-my-posh" "$BASHRC" 2>/dev/null; then
         add_preview_action "Will add oh-my-posh configuration to $BASHRC"
     fi
+    if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] && [[ ! "$TERM" =~ tmux ]] && [ -z "$TMUX" ]; then
+        add_preview_action "Will update $BASHRC to default to tmux"
+    fi
 }
 
 # Function to check tmux plugin manager
@@ -192,17 +207,6 @@ generate_preview() {
     check_backup_needed "$NVIM_CONFIG_DIR"
     check_symlink_needed "$DOTFILES_DIR/kickstart.nvim" "$NVIM_CONFIG_DIR"
     
-    # Git submodule status
-    if [ -f "$DOTFILES_DIR/.gitmodules" ]; then
-        if ! git -C "$DOTFILES_DIR" submodule status kickstart.nvim 2>/dev/null | grep -q '^[^ ]'; then
-            add_preview_action "Will initialize kickstart.nvim submodule"
-        else
-            add_preview_action "Will update kickstart.nvim submodule"
-        fi
-    else
-        add_preview_action "WARNING: No .gitmodules file found. Kickstart.nvim might not be set up correctly."
-    fi
-    
     # Add general setup actions
     add_preview_action "Will create backup directory at: $BACKUP_DIR"
     add_preview_action "Will set up oh-my-posh theme at: $POSH_THEME_DIR/$POSH_THEME_FILE"
@@ -214,6 +218,171 @@ generate_preview() {
         add_preview_action "Will install Neovim"
     fi
     add_preview_action "Will setup Neovim configuration at: $NVIM_CONFIG_DIR"
+}
+
+# Function to backup a file
+backup_file() {
+    local file=$1
+    if [[ -e $file && ! -L $file ]]; then
+        local timestamp=$(date +%Y%m%d_%H%M%S)
+        if [ "$DRY_RUN" = true ]; then
+            echo "[DRY RUN] Would backup $file to $BACKUP_DIR/$(basename $file)_${timestamp}.bak"
+        else
+            mv "$file" "$BACKUP_DIR/$(basename $file)_${timestamp}.bak"
+            echo "Backed up $file to $BACKUP_DIR"
+        fi
+    fi
+}
+
+# Function to restore backups
+restore_backup() {
+    local file=$1
+    local backup="$BACKUP_DIR/$(basename $file).bak"
+    if [ -f "$backup" ]; then
+        if [ "$DRY_RUN" = true ]; then
+            echo "[DRY RUN] Would restore backup of $file"
+        else
+            mv "$backup" "$file"
+            echo "Restored backup of $file"
+        fi
+    fi
+}
+
+# Function to create a symlink
+create_symlink() {
+    local src=$1
+    local dest=$2
+    if [[ -L $dest ]] && [[ "$FORCE" != true ]]; then
+        echo "Symlink already exists: $dest -> $(readlink $dest)"
+    else
+        if [ "$DRY_RUN" = true ]; then
+            echo "[DRY RUN] Would create symlink: $dest -> $src"
+        else
+            ln -sf "$src" "$dest"
+            echo "Created symlink: $dest -> $src"
+        fi
+    fi
+}
+
+install_latest_neovim() {
+    if [ "$DRY_RUN" = true ]; then
+        echo "[DRY RUN] Would install latest Neovim"
+        return
+    fi
+
+    echo "Installing latest Neovim..."
+    
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        # Remove existing Neovim installations
+        if command -v nvim &>/dev/null; then
+            if command -v apt-get &>/dev/null; then
+                sudo apt-get remove -y neovim neovim-runtime
+                sudo apt-get purge -y neovim
+                sudo apt autoremove -y
+            elif command -v dnf &>/dev/null; then
+                sudo dnf remove -y neovim
+            fi
+        fi
+
+        sudo apt-get install -y ninja-build gettext cmake unzip curl
+        git clone https://github.com/neovim/neovim
+        cd neovim
+        git checkout stable
+        make CMAKE_BUILD_TYPE=RelWithDebInfo
+        sudo make install
+        cd ..
+        rm -rf neovim
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        brew uninstall neovim || true
+        brew install neovim
+    fi
+}
+
+# Function to install oh-my-posh
+install_oh_my_posh() {
+    check_sudo
+    
+    if [ "$DRY_RUN" = true ]; then
+        echo "[DRY RUN] Would install oh-my-posh"
+        return
+    fi
+
+    echo "Installing oh-my-posh..."
+    
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        # For Linux systems
+        if command -v curl &>/dev/null; then
+            curl -s https://ohmyposh.dev/install.sh | sudo bash -s
+            
+            # Ensure binary is in a PATH location
+            if [ -f "/usr/local/bin/oh-my-posh" ]; then
+                sudo chmod +x /usr/local/bin/oh-my-posh
+            elif [ -f "$HOME/.local/bin/oh-my-posh" ]; then
+                sudo mv "$HOME/.local/bin/oh-my-posh" /usr/local/bin/
+                sudo chmod +x /usr/local/bin/oh-my-posh
+            fi
+        else
+            echo "Error: curl is required for oh-my-posh installation"
+            exit 1
+        fi
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        # For macOS
+        if command -v brew &>/dev/null; then
+            brew install jandedobbeleer/oh-my-posh/oh-my-posh
+        else
+            echo "Error: Homebrew is required for oh-my-posh installation on macOS"
+            exit 1
+        fi
+    else
+        echo "Unsupported operating system for oh-my-posh installation"
+        exit 1
+    fi
+    
+    # Verify installation and setup
+    if ! command -v oh-my-posh &>/dev/null; then
+        # Try to source the updated PATH
+        export PATH=$PATH:/usr/local/bin:/usr/bin
+        if ! command -v oh-my-posh &>/dev/null; then
+            echo "Error: oh-my-posh installation failed or not in PATH"
+            exit 1
+        fi
+    fi
+    
+    echo "oh-my-posh installed successfully"
+    
+    # Create themes directory and download default theme
+    mkdir -p "$POSH_THEME_DIR"
+    if [ ! -f "$POSH_THEME_DIR/$POSH_THEME_FILE" ]; then
+        echo "Downloading default oh-my-posh theme..."
+        curl -s "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/jandedobbeleer.omp.json" \
+            -o "$POSH_THEME_DIR/$POSH_THEME_FILE"
+    fi
+
+    # Update bashrc with oh-my-posh configuration
+    if ! grep -q "oh-my-posh init bash" "$BASHRC"; then
+        echo -e "\n# oh-my-posh configuration" >> "$BASHRC"
+        echo 'export PATH=$PATH:/usr/local/bin:/usr/bin' >> "$BASHRC"
+        echo 'if command -v oh-my-posh &>/dev/null; then' >> "$BASHRC"
+        echo 'eval "$(oh-my-posh init bash --config ~/dotfiles/.poshthemes/'"${POSH_THEME_FILE}"')"' >> "$BASHRC"
+	echo 'fi' >> "$BASHRC"
+        echo "Added oh-my-posh configuration to $BASHRC"
+    fi
+}
+
+# Function to install required packages
+install_packages() {
+    for package in "${REQUIRED_PACKAGES[@]}"; do
+        if ! $PKG_CHECK_CMD $package &>/dev/null; then
+            if [ "$DRY_RUN" = true ]; then
+                echo "[DRY RUN] Would install $package"
+            else
+                echo "Installing $package..."
+                $INSTALL_CMD $package
+            fi
+        else
+            echo "$package is already installed"
+        fi
+    done
 }
 
 # Main setup function
@@ -235,11 +404,14 @@ main() {
     # Install required packages
     install_packages
 
+    # Install latest neovim release
+    install_latest_neovim
+
     # Set up .bashrc
     backup_file "$BASHRC"
     if [ "$DRY_RUN" = false ]; then
         if ! grep -q "# DOTFILES CONFIG" "$BASHRC" 2>/dev/null; then
-            echo -e "\n# DOTFILES CONFIG\nsource $DOTFILES_DIR/bashrc" >> "$BASHRC"
+            echo -e "\n# DOTFILES CONFIG\nsource $DOTFILES_DIR/.bashrc" >> "$BASHRC"
             echo "Updated $BASHRC to source dotfiles bashrc"
         else
             echo "$BASHRC already updated with dotfiles config"
@@ -248,7 +420,8 @@ main() {
 
     # Set up tmux configuration
     backup_file "$TMUX_CONF"
-    create_symlink "$DOTFILES_DIR/tmux.conf" "$TMUX_CONF"
+    create_symlink "$DOTFILES_DIR/.tmux.conf" "$TMUX_CONF"
+    echo 'if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] && [[ ! "$TERM" =~ tmux ]] && [ -z "$TMUX" ]; then exec tmux; fi' >> "$BASHRC"
 
     # Install oh-my-posh if not present
     if ! command -v oh-my-posh &>/dev/null; then
@@ -266,8 +439,8 @@ main() {
     # Update .bashrc for oh-my-posh
     if [ "$DRY_RUN" = false ]; then
         if ! grep -q "oh-my-posh" "$BASHRC"; then
-            echo 'eval "$(oh-my-posh --init --shell bash --config $HOME/.poshthemes/my_theme.omp.json)"' >> "$BASHRC"
-            echo "Added oh-my-posh configuration to $BASHRC"
+            echo 'eval "$(oh-my-posh init bash --config ~/dotfiles/.poshthemes/'"${POSH_THEME_FILE}"')"' >> "$BASHRC"
+	    echo "Added oh-my-posh configuration to $BASHRC"
         else
             echo "oh-my-posh configuration already present in $BASHRC"
         fi
@@ -282,6 +455,14 @@ main() {
             echo "Tmux plugin manager already installed"
         fi
     fi
+
+    # Setup Neovim configuration
+    backup_file "$NVIM_CONFIG_DIR"
+    if [ "$DRY_RUN" = false ]; then
+        setup_kickstart
+        mkdir -p "$NVIM_CONFIG_DIR"
+    fi
+    create_symlink "$DOTFILES_DIR/.config/nvim" "$NVIM_CONFIG_DIR"
 
     echo "Setup complete! Please restart your terminal or run: source $BASHRC"
 }
@@ -298,3 +479,5 @@ elif [ "$PREVIEW" = true ]; then
 fi
 
 main
+
+source ~/.bashrc
