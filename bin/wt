@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+###############################################################################
+# wt — Git worktree manager
+#
+# PURPOSE:
+#   This script streamlines creating and managing Git worktrees for feature
+#   branches. It automatically organizes them under a consistent directory
+#   structure (`<repo_root>/wt/<branch>`), handles upstream setup, and can
+#   optionally skip pushing new branches for local drafts.
+#
+# USAGE:
+#   wt [-n|--no-push] <branch-name>
+#
+# FLAGS:
+#   -n, --no-push   Create the worktree and branch locally only (do not push
+#                   to origin or set upstream tracking). Useful for drafts,
+#                   experiments, or WIP branches.
+#
+# ENVIRONMENT VARIABLES:
+#   WT_BASE         Override the default base branch used for new branches.
+#                   Defaults to "origin/main". Example:
+#                     WT_BASE=origin/develop wt feature/my-feature
+#
+# BEHAVIOR:
+#   - Can be run from any directory inside a Git repo.
+#   - Resolves the repository root automatically.
+#   - Ensures all worktrees are created under `<repo_root>/wt/<branch>`.
+#   - Works for:
+#       * existing local branches
+#       * remote-only branches (tracks origin/<branch>)
+#       * new branches (created from WT_BASE)
+#   - If --no-push is omitted, will push new branches and set upstream to origin.
+#   - If upstream already exists, it will detect and skip reconfiguration.
+#
+# INSTALLATION:
+#   1. Save this file to your dotfiles bin directory, e.g.:
+#        ~/.dotfiles/bin/wt
+#   2. Make it executable:
+#        chmod +x ~/.dotfiles/bin/wt
+#   3. Add to your PATH (e.g. in ~/.zshrc):
+#        export PATH="$HOME/.dotfiles/bin:$PATH"
+#
+# EXAMPLES:
+#   wt feature/login              # Create new worktree and push to origin
+#   wt -n wip/local-prototype     # Local draft branch only, no push
+#   WT_BASE=origin/develop wt fix/bug-42
+#
+###############################################################################
+
+usage() {
+  echo "Usage: wt [-n|--no-push] <branch-name>"
+  echo "  -n, --no-push   Create local worktree/branch but do not push or set upstream"
+}
+
+no_push=false
+branch=""
+
+# --- Parse arguments ---
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n|--no-push) no_push=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) branch="$1"; shift ;;
+  esac
+done
+
+if [[ -z "${branch}" ]]; then
+  usage
+  exit 1
+fi
+
+# --- Verify repo root ---
+if ! repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+  echo "❌ Not inside a Git repository." >&2
+  exit 1
+fi
+
+if [[ "$PWD" != "$repo_root" ]]; then
+  echo "↪︎ Switching to repo root: $repo_root"
+  cd "$repo_root"
+fi
+
+# --- Prepare directories ---
+base_dir="$repo_root/wt"
+worktree_dir="$base_dir/$branch"
+mkdir -p "$base_dir"
+
+if [[ -e "$worktree_dir" ]]; then
+  echo "❌ Target path already exists: $worktree_dir" >&2
+  exit 1
+fi
+
+# --- Determine base branch ---
+base_ref="${WT_BASE:-origin/main}"
+
+# Fetch latest refs but don’t fail if offline
+git fetch --all --prune --quiet || true
+
+# --- Create the appropriate worktree ---
+if git show-ref --verify --quiet "refs/heads/$branch"; then
+  echo "📂 Using existing local branch '$branch'"
+  git worktree add "$worktree_dir" "$branch"
+elif git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+  echo "🌐 Found remote branch 'origin/$branch' — tracking it"
+  git worktree add "$worktree_dir" -b "$branch" "origin/$branch"
+else
+  echo "🆕 Creating new branch '$branch' from $base_ref"
+  git worktree add "$worktree_dir" -b "$branch" "$base_ref"
+fi
+
+# --- Handle upstream if not in draft mode ---
+if [[ "$no_push" == "true" ]]; then
+  echo "💤 Skipping push and upstream setup (draft mode)"
+else
+  (
+    cd "$worktree_dir"
+
+    target_upstream="origin/$branch"
+    current_upstream="$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true)"
+
+    if [[ "$current_upstream" == "$target_upstream" ]]; then
+      echo "🔗 Upstream already set to $target_upstream"
+    else
+      if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+        if [[ -n "$current_upstream" ]]; then
+          echo "🔄 Updating upstream from $current_upstream to $target_upstream"
+        else
+          echo "🔗 Setting upstream to $target_upstream"
+        fi
+        git branch --set-upstream-to="$target_upstream" >/dev/null
+        echo "🔗 Set upstream to $target_upstream"
+      else
+        echo "🚀 Pushing branch and setting upstream to $target_upstream"
+        git push -u origin HEAD >/dev/null
+        echo "🚀 Pushed and set upstream to $target_upstream"
+      fi
+    fi
+  )
+fi
+
+echo "✅ Worktree ready: $worktree_dir"

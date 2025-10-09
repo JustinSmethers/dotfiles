@@ -10,6 +10,7 @@ trap 'echo "Error occurred at line $LINENO"; exit 1' ERR
 DOTFILES_DIR="$HOME/dotfiles"
 BACKUP_DIR="$HOME/dotfiles_backup"
 BASHRC="$HOME/.bashrc"
+ZSHRC="$HOME/.zshrc"
 TMUX_CONF="$HOME/.tmux.conf"
 POSH_THEME_DIR="$HOME/.poshthemes"
 POSH_THEME_FILE="pure_python_custom.omp.json"
@@ -114,6 +115,22 @@ detect_os() {
     fi
 }
 
+# Function to detect user's shell
+detect_shell() {
+    # Detect current shell from $SHELL environment variable
+    if [[ "$SHELL" == *"zsh"* ]]; then
+        USER_SHELL="zsh"
+        add_preview_action "Detected zsh as default shell"
+    elif [[ "$SHELL" == *"bash"* ]]; then
+        USER_SHELL="bash"
+        add_preview_action "Detected bash as default shell"
+    else
+        # Default to bash if unable to detect
+        USER_SHELL="bash"
+        add_preview_action "Unable to detect shell, defaulting to bash"
+    fi
+}
+
 setup_kickstart() {
     if [ "$DRY_RUN" = true ]; then
         echo "[DRY RUN] Would setup kickstart.nvim"
@@ -163,17 +180,32 @@ check_oh_my_posh() {
     fi
 }
 
-# Function to check bashrc modifications
-check_bashrc_modifications() {
+# Function to check shell modifications
+check_shell_modifications() {
+    # Check bashrc
     if ! grep -q "# DOTFILES CONFIG" "$BASHRC" 2>/dev/null; then
         add_preview_action "Will update $BASHRC to source dotfiles configuration"
     fi
-    
+
     if ! grep -q "oh-my-posh" "$BASHRC" 2>/dev/null; then
         add_preview_action "Will add oh-my-posh configuration to $BASHRC"
     fi
-    if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] && [[ ! "$TERM" =~ tmux ]] && [ -z "$TMUX" ]; then
+
+    if ! grep -q "exec tmux" "$BASHRC" 2>/dev/null; then
         add_preview_action "Will update $BASHRC to default to tmux"
+    fi
+
+    # Check zshrc
+    if ! grep -q "# DOTFILES CONFIG" "$ZSHRC" 2>/dev/null; then
+        add_preview_action "Will update $ZSHRC to source dotfiles configuration"
+    fi
+
+    if ! grep -q "oh-my-posh" "$ZSHRC" 2>/dev/null; then
+        add_preview_action "Will add oh-my-posh configuration to $ZSHRC"
+    fi
+
+    if ! grep -q "exec tmux" "$ZSHRC" 2>/dev/null; then
+        add_preview_action "Will update $ZSHRC to default to tmux"
     fi
 }
 
@@ -193,16 +225,22 @@ generate_preview() {
     fi
 
     detect_os
+    detect_shell
     check_packages
-    
+
     # Check regular configs
     check_backup_needed "$BASHRC"
+    check_backup_needed "$ZSHRC"
     check_backup_needed "$TMUX_CONF"
-    check_symlink_needed "$DOTFILES_DIR/tmux.conf" "$TMUX_CONF"
+    check_symlink_needed "$DOTFILES_DIR/.tmux.conf" "$TMUX_CONF"
     check_oh_my_posh
-    check_bashrc_modifications
+    check_shell_modifications
     check_tmux_plugins
-    
+
+    if [ -d "$DOTFILES_DIR/bin" ]; then
+        add_preview_action "Will ensure tracked scripts in $DOTFILES_DIR/bin are executable"
+    fi
+
     # Check Neovim setup
     check_backup_needed "$NVIM_CONFIG_DIR"
     check_symlink_needed "$DOTFILES_DIR/kickstart.nvim" "$NVIM_CONFIG_DIR"
@@ -364,9 +402,48 @@ install_oh_my_posh() {
         echo 'export PATH=$PATH:/usr/local/bin:/usr/bin' >> "$BASHRC"
         echo 'if command -v oh-my-posh &>/dev/null; then' >> "$BASHRC"
         echo 'eval "$(oh-my-posh init bash --config ~/dotfiles/.poshthemes/'"${POSH_THEME_FILE}"')"' >> "$BASHRC"
-	echo 'fi' >> "$BASHRC"
+        echo 'fi' >> "$BASHRC"
         echo "Added oh-my-posh configuration to $BASHRC"
     fi
+
+    # Update zshrc with oh-my-posh configuration
+    if ! grep -q "oh-my-posh init zsh" "$ZSHRC"; then
+        echo -e "\n# oh-my-posh configuration" >> "$ZSHRC"
+        echo 'export PATH=$PATH:/usr/local/bin:/usr/bin' >> "$ZSHRC"
+        echo 'if command -v oh-my-posh &>/dev/null; then' >> "$ZSHRC"
+        echo 'eval "$(oh-my-posh init zsh --config ~/dotfiles/.poshthemes/'"${POSH_THEME_FILE}"')"' >> "$ZSHRC"
+        echo 'fi' >> "$ZSHRC"
+        echo "Added oh-my-posh configuration to $ZSHRC"
+    fi
+}
+
+ensure_bin_executables() {
+    local bin_dir="$DOTFILES_DIR/bin"
+
+    if [ ! -d "$bin_dir" ]; then
+        return
+    fi
+
+    local tracked_files
+    tracked_files=$(git -C "$DOTFILES_DIR" ls-files "bin" 2>/dev/null || true)
+
+    if [ -z "$tracked_files" ]; then
+        return
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+        echo "[DRY RUN] Would ensure scripts in $bin_dir are executable"
+        return
+    fi
+
+    while IFS= read -r relative_path; do
+        local abs_path="$DOTFILES_DIR/$relative_path"
+        if [ -f "$abs_path" ]; then
+            chmod +x "$abs_path"
+        fi
+    done <<<"$tracked_files"
+
+    echo "Ensured executable permission on scripts in $bin_dir"
 }
 
 # Function to install required packages
@@ -385,6 +462,51 @@ install_packages() {
     done
 }
 
+# Function to set up shell configurations
+setup_shell_config() {
+    # Set up .bashrc
+    backup_file "$BASHRC"
+    if [ "$DRY_RUN" = false ]; then
+        if ! grep -q "# DOTFILES CONFIG" "$BASHRC" 2>/dev/null; then
+            echo -e "\n# DOTFILES CONFIG\nsource $DOTFILES_DIR/.bashrc" >> "$BASHRC"
+            echo "Updated $BASHRC to source dotfiles bashrc"
+        else
+            echo "$BASHRC already updated with dotfiles config"
+        fi
+    fi
+
+    # Set up .zshrc
+    backup_file "$ZSHRC"
+    if [ "$DRY_RUN" = false ]; then
+        if ! grep -q "# DOTFILES CONFIG" "$ZSHRC" 2>/dev/null; then
+            echo -e "\n# DOTFILES CONFIG\nsource $DOTFILES_DIR/.zshrc" >> "$ZSHRC"
+            echo "Updated $ZSHRC to source dotfiles zshrc"
+        else
+            echo "$ZSHRC already updated with dotfiles config"
+        fi
+    fi
+
+    # Add tmux auto-launch to bashrc if not present
+    if [ "$DRY_RUN" = false ]; then
+        if ! grep -q "exec tmux" "$BASHRC"; then
+            echo 'if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] && [[ ! "$TERM" =~ tmux ]] && [ -z "$TMUX" ]; then exec tmux; fi' >> "$BASHRC"
+            echo "Added tmux auto-launch to $BASHRC"
+        else
+            echo "Tmux auto-launch already present in $BASHRC"
+        fi
+    fi
+
+    # Add tmux auto-launch to zshrc if not present
+    if [ "$DRY_RUN" = false ]; then
+        if ! grep -q "exec tmux" "$ZSHRC"; then
+            echo 'if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] && [[ ! "$TERM" =~ tmux ]] && [ -z "$TMUX" ]; then exec tmux; fi' >> "$ZSHRC"
+            echo "Added tmux auto-launch to $ZSHRC"
+        else
+            echo "Tmux auto-launch already present in $ZSHRC"
+        fi
+    fi
+}
+
 # Main setup function
 main() {
     # Verify dotfiles directory exists
@@ -398,6 +520,8 @@ main() {
         mkdir -p "$BACKUP_DIR"
     fi
 
+    ensure_bin_executables
+
     # Detect OS and set package manager
     detect_os
 
@@ -407,21 +531,15 @@ main() {
     # Install latest neovim release
     install_latest_neovim
 
-    # Set up .bashrc
-    backup_file "$BASHRC"
-    if [ "$DRY_RUN" = false ]; then
-        if ! grep -q "# DOTFILES CONFIG" "$BASHRC" 2>/dev/null; then
-            echo -e "\n# DOTFILES CONFIG\nsource $DOTFILES_DIR/.bashrc" >> "$BASHRC"
-            echo "Updated $BASHRC to source dotfiles bashrc"
-        else
-            echo "$BASHRC already updated with dotfiles config"
-        fi
-    fi
+    # Detect user's shell
+    detect_shell
+
+    # Set up shell configurations (bash and zsh)
+    setup_shell_config
 
     # Set up tmux configuration
     backup_file "$TMUX_CONF"
     create_symlink "$DOTFILES_DIR/.tmux.conf" "$TMUX_CONF"
-    echo 'if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] && [[ ! "$TERM" =~ tmux ]] && [ -z "$TMUX" ]; then exec tmux; fi' >> "$BASHRC"
 
     # Install oh-my-posh if not present
     if ! command -v oh-my-posh &>/dev/null; then
@@ -434,17 +552,7 @@ main() {
     if [ "$DRY_RUN" = false ]; then
         mkdir -p "$POSH_THEME_DIR"
     fi
-    create_symlink "$DOTFILES_DIR/$POSH_THEME_FILE" "$POSH_THEME_DIR/$POSH_THEME_FILE"
-
-    # Update .bashrc for oh-my-posh
-    if [ "$DRY_RUN" = false ]; then
-        if ! grep -q "oh-my-posh" "$BASHRC"; then
-            echo 'eval "$(oh-my-posh init bash --config ~/dotfiles/.poshthemes/'"${POSH_THEME_FILE}"')"' >> "$BASHRC"
-	    echo "Added oh-my-posh configuration to $BASHRC"
-        else
-            echo "oh-my-posh configuration already present in $BASHRC"
-        fi
-    fi
+    create_symlink "$DOTFILES_DIR/.poshthemes/$POSH_THEME_FILE" "$POSH_THEME_DIR/$POSH_THEME_FILE"
 
     # Install tmux plugins
     if [ "$DRY_RUN" = false ]; then
@@ -460,9 +568,7 @@ main() {
     backup_file "$NVIM_CONFIG_DIR"
     if [ "$DRY_RUN" = false ]; then
         setup_kickstart
-        mkdir -p "$NVIM_CONFIG_DIR"
     fi
-    create_symlink "$DOTFILES_DIR/.config/nvim" "$NVIM_CONFIG_DIR"
 
     echo "Setup complete! Please restart your terminal or run: source $BASHRC"
 }
@@ -480,4 +586,4 @@ fi
 
 main
 
-source ~/.bashrc
+echo "Setup complete! Please restart your terminal to apply all changes."

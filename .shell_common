@@ -17,4 +17,4 @@ export NVM_DIR="$HOME/.nvm"
 # dbt config 
 export DBT_PROFILES_DIR=~/.dbt 
 
-export PATH=$PATH:/home/justin/.local/bin
+export PATH=$PATH:$HOME/.local/bin:$HOME/dotfiles/bin
