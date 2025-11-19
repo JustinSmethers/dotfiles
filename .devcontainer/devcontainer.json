@@ -1,5 +1,5 @@
 {
-  "name": "job-watcher-flagged",
+  "name": "flagged-devcontainer",
   "build": {
     "dockerfile": "devcontainer-general/Dockerfile",
     "context": ".",

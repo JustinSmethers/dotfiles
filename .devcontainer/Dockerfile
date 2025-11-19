@@ -77,4 +77,4 @@ RUN if [ "${ENABLE_FIREWALL_DEPS:-0}" = "1" ]; then \
     fi
 
 USER vscode
-WORKDIR /workspaces/job-watcher
+WORKDIR /workspaces

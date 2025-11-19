@@ -1,6 +1,6 @@
 # Flag-Based Devcontainer Template
 
-This directory contains a generalized variant of the Job Watcher devcontainer configuration. Every optional dependency or lifecycle hook is gated behind a flag so the same definition can be reused across projects.
+This directory contains a reusable, flag-based devcontainer configuration. Every optional dependency or lifecycle hook is gated behind a flag so the same definition can be reused across projects.
 
 ## Included Tooling
 - Base image `mcr.microsoft.com/devcontainers/python:3.13-bookworm`, which ships Python 3.13, pip, git, zsh, and common build tools from the official Dev Containers collection.
