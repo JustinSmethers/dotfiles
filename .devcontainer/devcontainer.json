@@ -1,0 +1,33 @@
+{
+  "name": "job-watcher-flagged",
+  "build": {
+    "dockerfile": "devcontainer-general/Dockerfile",
+    "context": ".",
+    "args": {
+      "ENABLE_PLAYWRIGHT": "${localEnv:DEVCONTAINER_ENABLE_PLAYWRIGHT}",
+      "INSTALL_CLI_BUNDLE": "${localEnv:DEVCONTAINER_INSTALL_CLI_BUNDLE}",
+      "ENABLE_FIREWALL_DEPS": "${localEnv:DEVCONTAINER_ENABLE_FIREWALL_DEPS}"
+    }
+  },
+  "containerEnv": {
+    "UV_LINK_MODE": "copy"
+  },
+  "postCreateCommand": "bash devcontainer-general/post-create.sh",
+  "postStartCommand": "bash devcontainer-general/post-start.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": ".venv/bin/python",
+        "python.testing.pytestArgs": [
+          "tests"
+        ],
+        "python.testing.pytestEnabled": true,
+        "python.testing.unittestEnabled": false
+      }
+    }
+  }
+}
