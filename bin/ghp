@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -e
+
+echo "Fetching and pruning remote branches..."
+git fetch --prune
+
+echo "Finding stale local branches..."
+STALE=$(git branch -vv | grep ': gone]' | awk '{print $1}')
+
+if [[ -z "$STALE" ]]; then
+    echo "No stale branches found."
+    exit 0
+fi
+
+echo "Deleting stale branches:"
+echo "$STALE"
+echo "$STALE" | xargs git branch -d
