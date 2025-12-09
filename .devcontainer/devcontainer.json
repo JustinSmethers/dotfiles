@@ -1,19 +1,13 @@
 {
-  "name": "flagged-devcontainer",
+  "name": "python-uv-codex",
   "build": {
-    "dockerfile": "devcontainer-general/Dockerfile",
-    "context": ".",
-    "args": {
-      "ENABLE_PLAYWRIGHT": "${localEnv:DEVCONTAINER_ENABLE_PLAYWRIGHT}",
-      "INSTALL_CLI_BUNDLE": "${localEnv:DEVCONTAINER_INSTALL_CLI_BUNDLE}",
-      "ENABLE_FIREWALL_DEPS": "${localEnv:DEVCONTAINER_ENABLE_FIREWALL_DEPS}"
-    }
+    "dockerfile": "Dockerfile",
+    "context": "."
   },
-  "containerEnv": {
-    "UV_LINK_MODE": "copy"
-  },
-  "postCreateCommand": "bash devcontainer-general/post-create.sh",
-  "postStartCommand": "bash devcontainer-general/post-start.sh",
+  "mounts": [
+    "type=bind,source=${localEnv:HOME}/.codex,target=/home/vscode/.codex,consistency=cached",
+    "type=bind,source=${localEnv:HOME}/.config/uv,target=/home/vscode/.config/uv,consistency=cached",
+  ],
   "customizations": {
     "vscode": {
       "extensions": [
