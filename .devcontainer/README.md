@@ -41,6 +41,26 @@ Create `devcontainer-general/flags.local.env` (ignored by git) to override the d
 
 You can also export these variables before attaching to the devcontainer; the scripts treat environment values as higher priority than the defaults.
 
+## Auth / Config Passthrough
+The devcontainer bind-mounts your host auth/config directories so CLI tools stay signed in by default:
+- `~/.codex` → `/home/vscode/.codex`
+- `~/.config/uv` → `/home/vscode/.config/uv`
+- `~/.config/claude` → `/home/vscode/.config/claude`
+
+All mounts use your host `HOME`. If you want to opt out or point at different paths, adjust the `mounts` block in `devcontainer.json` before launching the container.
+
+To disable a specific mount (e.g., Claude), edit `devcontainer.json` and list only the mounts you want. Example:
+
+```jsonc
+{
+  // Keep Codex and uv mounts, drop Claude
+  "mounts": [
+    "type=bind,source=${localEnv:HOME}/.codex,target=/home/vscode/.codex,consistency=cached",
+    "type=bind,source=${localEnv:HOME}/.config/uv,target=/home/vscode/.config/uv,consistency=cached"
+  ]
+}
+```
+
 ### Example allowlist CSV
 The default file `devcontainer-general/firewall-domains.csv` ships with sample rows you can edit in-place. Each row must provide a column named `url` (lowercase) or any of the other recognized headers (`Careers Page`, `URL`). The firewall script parses that column, extracts hostnames, and allows each resolved IP. To add more hosts, append rows like:
 
