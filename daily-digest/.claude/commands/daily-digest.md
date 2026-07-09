@@ -106,23 +106,44 @@ Produce a focused plan, don't just dump data.
    - If a ticket has `dirty` (uncommitted work), call it out in `Next` with 🔧, e.g.
      `Next: 🔧 commit 6 untracked in <repo>`. Uncommitted work at wrap-up is a
      loose end — surfacing it is a main point of the EOD run.
-2. Reconcile Jira. For each `proposals` entry and any status mismatch, decide the
-   right change (transition, and/or a short progress comment, and/or worklog).
+2. **Proposed ticket updates.** For each ticket with activity today, draft a concise
+   progress note meant to be posted as a Jira comment. Keep it scannable — bullets, not
+   prose — using exactly two labeled sections:
+   - `Progress:` — 1–4 bullets on what moved today (commits/PRs/reviews/decisions).
+   - `Next steps:` — 1–3 bullets on the concrete next actions.
+   Each bullet ≤ 12 words, imperative/factual fragments, symbols over words (`->`, `#6206`,
+   `merged`). Reference PRs by number. Skip a section only if genuinely empty. Example:
+   ```
+   Progress:
+   - #6206 merged -> deployed to staging
+   - Backfill CTE reviewed, 2 nits fixed
+   Next steps:
+   - QA staging output vs prod
+   - Close ticket once verified
+   ```
+   Write these into the note's `## EOD reconcile` section (below) AND use them as the
+   `--body` for the comment in `apply-jira.sh`.
+3. Reconcile Jira. For each `proposals` entry and any status mismatch, decide the
+   right change (transition, and/or the progress comment from step 2, and/or worklog).
    Exact `acli` syntax (verified — get it right so the generated script actually runs):
    - transition: `acli jira workitem transition --key "<KEY>" --status "Done" --yes`
    - comment: `acli jira workitem comment create --key "<KEY>" --body "..."` (note the
      `create` subcommand — `acli jira workitem comment --key ...` alone is INVALID)
-3. **Do not run transitions/comments directly.** Instead write a reviewable
+4. **Do not run transitions/comments directly.** Instead write a reviewable
    `apply-jira.sh` in this repo dir containing the exact commands, each preceded by a
    comment explaining why, e.g.:
    ```bash
    # PROJ-341: PR #6149 merged 2026-07-02 -> close out
    acli jira workitem transition --key "PROJ-341" --status "Done" --yes
-   acli jira workitem comment create --key "PROJ-341" --body "Merged via #6149; QA done."
+   acli jira workitem comment create --key "PROJ-341" --body "Progress:
+   - #6149 merged -> deployed
+   Next steps:
+   - QA + close"
    ```
    Also append a `## EOD reconcile (<date>)` checklist to the note listing each
-   proposed change so it's visible in Obsidian.
-4. End by telling the user: review `apply-jira.sh`, then run `bash apply-jira.sh` to
+   proposed change so it's visible in Obsidian. Under each ticket's entry there, include
+   its `Progress:` / `Next steps:` bullets from step 2.
+5. End by telling the user: review `apply-jira.sh`, then run `bash apply-jira.sh` to
    apply. (If they've set `AUTO_APPLY=1` in the environment, run it yourself.)
 
 ## Style — write SUPER concise note lines (hard requirement)
