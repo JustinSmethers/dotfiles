@@ -19,7 +19,7 @@ This is a dotfiles repository for shell and development environment configuratio
 # Run the setup script (includes preview mode by default)
 ./setup.sh
 
-# Dry run mode (preview only, no changes)
+# Dry run mode (preview only, no prompt, no changes)
 ./setup.sh --dry-run
 
 # Skip preview and install immediately
@@ -32,13 +32,13 @@ This is a dotfiles repository for shell and development environment configuratio
 The setup script:
 - Detects OS (macOS/Linux) and configures appropriate package manager
 - Detects user's default shell (bash or zsh)
-- Installs required packages (git, curl, wget, tmux, neovim, unzip)
+- Installs required packages (git, curl, wget, tmux, neovim, stow, unzip)
 - Creates backups of existing configs in `~/dotfiles_backup` with timestamps
 - Configures **both bash and zsh** (allowing you to switch shells freely)
-- Sets up symlinks to dotfiles from home directory
+- Uses GNU Stow for fully managed links: tmux config, oh-my-posh theme, and helper scripts
 - Installs oh-my-posh for shell prompt customization
 - Installs tmux plugin manager (TPM)
-- Sets up kickstart.nvim as the Neovim configuration
+- Sets up kickstart.nvim only when no Neovim config already exists
 
 ### System Requirements
 
@@ -47,6 +47,7 @@ Required packages are automatically installed by setup.sh:
 - curl/wget
 - tmux
 - neovim
+- stow
 - unzip
 
 ## Repository Structure
@@ -61,15 +62,15 @@ Required packages are automatically installed by setup.sh:
   - nvm (Node Version Manager) configuration
   - dbt profiles directory configuration
   - Local bin PATH addition
-- **`.tmux.conf`** — Tmux configuration with:
+- **`tmux/.tmux.conf`** — Tmux configuration stowed to `~/.tmux.conf` with:
   - Prefix remapped from `Ctrl-b` to `Ctrl-a`
   - Mouse mode enabled with scroll wheel support
   - Vi-style copy mode keybindings
-  - Clipboard integration using `pbcopy`
+  - macOS clipboard integration using `pbcopy` when available, with a tmux-buffer fallback elsewhere
 
 ### Oh-My-Posh Theme
 
-- **`.poshthemes/pure_python_custom.omp.json`** — Custom oh-my-posh theme with:
+- **`posh/.poshthemes/pure_python_custom.omp.json`** — Custom oh-my-posh theme stowed to `~/.poshthemes/pure_python_custom.omp.json` with:
   - Username and path display
   - Git status indicators (ahead/behind, working/staging changes, stash count)
   - Python version and virtual environment display
@@ -79,16 +80,23 @@ Required packages are automatically installed by setup.sh:
 
 ### Neovim Configuration
 
-- **`.config/nvim/`** — Currently empty; setup script clones kickstart.nvim here
-- The setup script removes any existing nvim config and installs kickstart.nvim from https://github.com/nvim-lua/kickstart.nvim
+- The setup script clones kickstart.nvim from https://github.com/nvim-lua/kickstart.nvim only when `~/.config/nvim` does not already exist
 
 ### Utility Scripts
 
-- **`bin/wt`** — Git worktree manager for feature branch workflows
+- **`scripts/bin/wt`** — Git worktree manager stowed to `~/bin/wt`
   - Creates worktrees under `<repo_root>/wt/<branch>`
   - Automatically handles upstream branch setup
   - Usage: `wt feature/branch-name` or `wt -n draft/branch` (no push)
   - Supports `WT_BASE` env var to override base branch (default: `origin/main`)
+
+### Daily Digest Tool
+
+- **`daily-digest/`** — Portable Jira/GitHub/daily-note digest tool
+  - Run setup from that directory with `claude "/daily-digest setup"`
+  - Keep `daily-digest/config.toml` local-only; use `config.toml.example` as the tracked template
+  - Keep generated files out of git: `daily-digest/launchd/*.plist`, `daily-digest/logs/`, `daily-digest/apply-jira.sh`, and `daily-digest/.claude/settings.local.json`
+  - Do not wire this into root `setup.sh`; it performs interactive auth/config checks and writes machine-specific launchd/Claude settings
 
 ## Platform-Specific Notes
 
@@ -96,13 +104,13 @@ Required packages are automatically installed by setup.sh:
 - Uses Homebrew as package manager
 - **Default shell is zsh** (since macOS Catalina 10.15 in 2019)
 - oh-my-posh installed via `brew install jandedobbeleer/oh-my-posh/oh-my-posh`
-- Neovim installed/upgraded via Homebrew
+- Neovim installed via Homebrew when missing
 - Both bash and zsh configurations are set up automatically
 
 ### Linux
 - Supports apt (Debian/Ubuntu) and dnf (Fedora/RHEL) package managers
 - oh-my-posh installed via curl script to `/usr/local/bin`
-- Neovim built from source (stable branch) for latest version
+- Neovim installed through the detected package manager when missing
 - Both bash and zsh configurations are set up automatically
 
 ### Windows
@@ -113,10 +121,10 @@ Required packages are automatically installed by setup.sh:
 ## Important Setup Behaviors
 
 1. **Backup Strategy**: All existing configs are backed up with timestamps to `~/dotfiles_backup` before being replaced
-2. **Symlink Management**: The setup creates symlinks from home directory to dotfiles directory, enabling version control of configs
+2. **Stow Management**: The setup uses GNU Stow for `tmux`, `posh`, and `scripts`, enabling version control of fully managed config without replacing local shell startup files
 3. **Dual Shell Support**: The setup configures **both bash and zsh** automatically:
-   - Appends to existing `.bashrc` and `.zshrc` rather than replacing them
-   - Adds source lines for `~/dotfiles/.bashrc` and `~/dotfiles/.zshrc`
+   - Appends to existing `~/.bashrc` and `~/.zshrc` rather than replacing them
+   - Adds source lines for this checkout's `.bashrc` and `.zshrc`
    - Configures oh-my-posh for both shells (with shell-specific init commands)
    - Adds tmux auto-launch to both shells (if not already in tmux)
    - Allows switching between bash and zsh without reconfiguring
@@ -135,6 +143,6 @@ Required packages are automatically installed by setup.sh:
 - nvm (Node Version Manager) automatically loaded in shell
 
 ### Git Worktrees
-- Use `bin/wt` to manage feature branch worktrees
+- Use `wt` to manage feature branch worktrees after `scripts/` is stowed to `~/bin`
 - All worktrees organized under `wt/` in repo root
 - Automatic upstream setup and branch pushing (unless `-n` flag used)

@@ -1,0 +1,7 @@
+logs/
+apply-jira.sh
+launchd/*.plist
+config.toml
+config.local.toml
+__pycache__/
+.claude/settings.local.json

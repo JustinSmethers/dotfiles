@@ -1,0 +1,29 @@
+# daily-digest config example.
+# Copy to ~/.config/daily-digest/config.toml or ./config.toml and edit.
+# Anything omitted is auto-detected where possible, then defaulted.
+
+# Jira issue/project key prefix used in branch names, commit subjects, PR titles,
+# and notes. Example: "PROJ" matches PROJ-123.
+ticket_prefix = "PROJ"
+
+# Directories whose immediate children may be git repositories.
+repo_roots = ["~/GitHub"]
+
+# Daily note location. Obsidian Daily Notes settings are auto-detected on macOS
+# if these are omitted.
+vault_path = "~/Notes"
+daily_folder = "Daily Notes"
+daily_note_format = "%Y-%m-%d"
+template_path = "Templates/Daily Note.md"
+
+# Commit author email/name substrings that identify your own commits.
+author_hints = ["yourname"]
+
+# Jira and GitHub filters.
+jira_site = "your-company.atlassian.net"
+pr_owners = ["your-github-org"]
+
+# Optional Jira query and schedules.
+# jql = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
+schedule_morning = "8:03"
+schedule_wrap = "16:07"

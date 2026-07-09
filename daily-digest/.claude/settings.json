@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 daily_digest.py:*)",
+      "Bash(acli jira auth status)",
+      "Bash(gh auth status)",
+      "Bash(gh api:*)",
+      "Read"
+    ]
+  }
+}

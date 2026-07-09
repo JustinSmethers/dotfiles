@@ -7,19 +7,29 @@ set -e
 trap 'echo "Error occurred at line $LINENO"; exit 1' ERR
 
 # Define paths
-DOTFILES_DIR="$HOME/dotfiles"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOTFILES_DIR="${DOTFILES_DIR:-$SCRIPT_DIR}"
 BACKUP_DIR="$HOME/dotfiles_backup"
 BASHRC="$HOME/.bashrc"
 ZSHRC="$HOME/.zshrc"
-TMUX_CONF="$HOME/.tmux.conf"
-POSH_THEME_DIR="$HOME/.poshthemes"
 POSH_THEME_FILE="pure_python_custom.omp.json"
 NVIM_CONFIG_DIR="$HOME/.config/nvim"
+STOW_PACKAGES=(
+    "tmux"
+    "posh"
+    "scripts"
+)
+STOW_TARGETS=(
+    "$HOME/.tmux.conf|$DOTFILES_DIR/tmux/.tmux.conf"
+    "$HOME/.poshthemes/$POSH_THEME_FILE|$DOTFILES_DIR/posh/.poshthemes/$POSH_THEME_FILE"
+    "$HOME/bin/wt|$DOTFILES_DIR/scripts/bin/wt"
+    "$HOME/bin/ghp|$DOTFILES_DIR/scripts/bin/ghp"
+)
 
 # Parse command line arguments
 DRY_RUN=false
 FORCE=false
-PREVIEW=true  # New flag for preview mode, default true
+PREVIEW=true
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -38,6 +48,7 @@ REQUIRED_PACKAGES=(
     "wget"
     "tmux"
     "neovim"
+    "stow"
     "unzip"
 )
 
@@ -49,8 +60,8 @@ add_preview_action() {
     PREVIEW_ACTIONS+=("$1")
 }
 
-# Function to display preview and get confirmation
-show_preview_and_confirm() {
+# Function to display preview
+show_preview() {
     echo -e "\n=== Installation Preview ===\n"
     echo "The following actions will be performed:"
     local i=1
@@ -67,7 +78,12 @@ show_preview_and_confirm() {
     if [ "$FORCE" = true ]; then
         echo "- Force mode: Enabled (will overwrite existing configurations)"
     fi
-    
+}
+
+# Function to display preview and get confirmation
+show_preview_and_confirm() {
+    show_preview
+
     echo -e "\nWould you like to proceed with the installation? [y/N] "
     read -r response
     
@@ -132,44 +148,47 @@ detect_shell() {
 }
 
 setup_kickstart() {
+    if [ -e "$NVIM_CONFIG_DIR" ]; then
+        echo "Neovim config already exists at $NVIM_CONFIG_DIR; skipping kickstart.nvim setup"
+        return
+    fi
+
     if [ "$DRY_RUN" = true ]; then
         echo "[DRY RUN] Would setup kickstart.nvim"
         return
     fi
 
     echo "Setting up kickstart.nvim..."
-    rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
-    git clone https://github.com/nvim-lua/kickstart.nvim.git "${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+    git clone https://github.com/nvim-lua/kickstart.nvim.git "$NVIM_CONFIG_DIR"
+}
+
+package_command() {
+    local package=$1
+    case "$package" in
+        neovim) echo "nvim" ;;
+        *) echo "$package" ;;
+    esac
+}
+
+package_available() {
+    local package=$1
+    local binary
+    binary=$(package_command "$package")
+
+    command -v "$binary" &>/dev/null || $PKG_CHECK_CMD "$package" &>/dev/null
 }
 
 # Function to check required packages
 check_packages() {
     local packages_to_install=()
     for package in "${REQUIRED_PACKAGES[@]}"; do
-        if ! $PKG_CHECK_CMD $package &>/dev/null; then
+        if ! package_available "$package"; then
             packages_to_install+=("$package")
         fi
     done
     
     if [ ${#packages_to_install[@]} -ne 0 ]; then
         add_preview_action "Will install packages: ${packages_to_install[*]}"
-    fi
-}
-
-# Function to backup a file
-check_backup_needed() {
-    local file=$1
-    if [[ -e $file && ! -L $file ]]; then
-        add_preview_action "Will backup existing file: $file"
-    fi
-}
-
-# Function to check symlink creation
-check_symlink_needed() {
-    local src=$1
-    local dest=$2
-    if [[ ! -L $dest ]] || [[ "$FORCE" = true ]]; then
-        add_preview_action "Will create symlink: $dest -> $src"
     fi
 }
 
@@ -183,8 +202,11 @@ check_oh_my_posh() {
 # Function to check shell modifications
 check_shell_modifications() {
     # Check bashrc
-    if ! grep -q "# DOTFILES CONFIG" "$BASHRC" 2>/dev/null; then
-        add_preview_action "Will update $BASHRC to source dotfiles configuration"
+    if ! grep -Fq "source $DOTFILES_DIR/.bashrc" "$BASHRC" 2>/dev/null; then
+        if [[ -e "$BASHRC" && ! -L "$BASHRC" ]]; then
+            add_preview_action "Will copy a backup of $BASHRC before appending dotfiles source"
+        fi
+        add_preview_action "Will append dotfiles source block to $BASHRC"
     fi
 
     if ! grep -q "oh-my-posh" "$BASHRC" 2>/dev/null; then
@@ -196,8 +218,11 @@ check_shell_modifications() {
     fi
 
     # Check zshrc
-    if ! grep -q "# DOTFILES CONFIG" "$ZSHRC" 2>/dev/null; then
-        add_preview_action "Will update $ZSHRC to source dotfiles configuration"
+    if ! grep -Fq "source $DOTFILES_DIR/.zshrc" "$ZSHRC" 2>/dev/null; then
+        if [[ -e "$ZSHRC" && ! -L "$ZSHRC" ]]; then
+            add_preview_action "Will copy a backup of $ZSHRC before appending dotfiles source"
+        fi
+        add_preview_action "Will append dotfiles source block to $ZSHRC"
     fi
 
     if ! grep -q "oh-my-posh" "$ZSHRC" 2>/dev/null; then
@@ -216,6 +241,35 @@ check_tmux_plugins() {
     fi
 }
 
+check_stow_targets() {
+    add_preview_action "Will stow packages into $HOME: ${STOW_PACKAGES[*]}"
+
+    local target
+    local source
+    local link_target
+    for pair in "${STOW_TARGETS[@]}"; do
+        target=${pair%%|*}
+        source=${pair#*|}
+
+        if [[ -L "$target" ]]; then
+            link_target=$(readlink "$target")
+            if [[ "$link_target" == "$source" ]]; then
+                add_preview_action "Stow target already linked: $target -> $source"
+            elif [[ "$link_target" == "$DOTFILES_DIR/"* ]]; then
+                add_preview_action "Will replace old dotfiles symlink before stowing: $target -> $link_target"
+            elif [[ "$FORCE" = true ]]; then
+                add_preview_action "Will backup existing symlink before stowing: $target -> $link_target"
+            else
+                add_preview_action "Existing symlink may conflict with stow: $target -> $link_target"
+            fi
+        elif [[ -e "$target" ]]; then
+            add_preview_action "Will backup existing file before stowing: $target"
+        else
+            add_preview_action "Will create stow link: $target -> $source"
+        fi
+    done
+}
+
 # Preview function
 generate_preview() {
     # Verify dotfiles directory exists
@@ -229,25 +283,23 @@ generate_preview() {
     check_packages
 
     # Check regular configs
-    check_backup_needed "$BASHRC"
-    check_backup_needed "$ZSHRC"
-    check_backup_needed "$TMUX_CONF"
-    check_symlink_needed "$DOTFILES_DIR/.tmux.conf" "$TMUX_CONF"
+    check_stow_targets
     check_oh_my_posh
     check_shell_modifications
     check_tmux_plugins
 
-    if [ -d "$DOTFILES_DIR/bin" ]; then
-        add_preview_action "Will ensure tracked scripts in $DOTFILES_DIR/bin are executable"
+    if [ -d "$DOTFILES_DIR/scripts/bin" ]; then
+        add_preview_action "Will ensure scripts in $DOTFILES_DIR/scripts/bin are executable"
     fi
 
     # Check Neovim setup
-    check_backup_needed "$NVIM_CONFIG_DIR"
-    check_symlink_needed "$DOTFILES_DIR/kickstart.nvim" "$NVIM_CONFIG_DIR"
+    if [ ! -e "$NVIM_CONFIG_DIR" ]; then
+        add_preview_action "Will clone kickstart.nvim to: $NVIM_CONFIG_DIR"
+    fi
     
     # Add general setup actions
     add_preview_action "Will create backup directory at: $BACKUP_DIR"
-    add_preview_action "Will set up oh-my-posh theme at: $POSH_THEME_DIR/$POSH_THEME_FILE"
+    add_preview_action "Will set up oh-my-posh theme via stow at: $HOME/.poshthemes/$POSH_THEME_FILE"
     
     # Add Neovim-specific setup info
     if command -v nvim &>/dev/null; then
@@ -255,13 +307,17 @@ generate_preview() {
     else
         add_preview_action "Will install Neovim"
     fi
-    add_preview_action "Will setup Neovim configuration at: $NVIM_CONFIG_DIR"
+    if [ -e "$NVIM_CONFIG_DIR" ]; then
+        add_preview_action "Will leave existing Neovim configuration in place: $NVIM_CONFIG_DIR"
+    else
+        add_preview_action "Will setup Neovim configuration at: $NVIM_CONFIG_DIR"
+    fi
 }
 
 # Function to backup a file
 backup_file() {
     local file=$1
-    if [[ -e $file && ! -L $file ]]; then
+    if [[ -e $file || -L $file ]]; then
         local timestamp=$(date +%Y%m%d_%H%M%S)
         if [ "$DRY_RUN" = true ]; then
             echo "[DRY RUN] Would backup $file to $BACKUP_DIR/$(basename $file)_${timestamp}.bak"
@@ -272,74 +328,54 @@ backup_file() {
     fi
 }
 
-# Function to restore backups
-restore_backup() {
+backup_file_copy() {
     local file=$1
-    local backup="$BACKUP_DIR/$(basename $file).bak"
-    if [ -f "$backup" ]; then
+    if [[ -e $file && ! -L $file ]]; then
+        local timestamp=$(date +%Y%m%d_%H%M%S)
         if [ "$DRY_RUN" = true ]; then
-            echo "[DRY RUN] Would restore backup of $file"
+            echo "[DRY RUN] Would copy backup of $file to $BACKUP_DIR/$(basename $file)_${timestamp}.bak"
         else
-            mv "$backup" "$file"
-            echo "Restored backup of $file"
+            cp "$file" "$BACKUP_DIR/$(basename $file)_${timestamp}.bak"
+            echo "Copied backup of $file to $BACKUP_DIR"
         fi
     fi
 }
 
-# Function to create a symlink
-create_symlink() {
-    local src=$1
-    local dest=$2
-    if [[ -L $dest ]] && [[ "$FORCE" != true ]]; then
-        echo "Symlink already exists: $dest -> $(readlink $dest)"
-    else
-        if [ "$DRY_RUN" = true ]; then
-            echo "[DRY RUN] Would create symlink: $dest -> $src"
-        else
-            ln -sf "$src" "$dest"
-            echo "Created symlink: $dest -> $src"
+backup_stow_conflicts() {
+    local target
+    local source
+    local link_target
+
+    for pair in "${STOW_TARGETS[@]}"; do
+        target=${pair%%|*}
+        source=${pair#*|}
+
+        if [[ -L "$target" ]]; then
+            link_target=$(readlink "$target")
+            if [[ "$link_target" == "$source" ]]; then
+                continue
+            fi
+            if [[ "$link_target" == "$DOTFILES_DIR/"* || "$FORCE" = true ]]; then
+                backup_file "$target"
+            fi
+        elif [[ -e "$target" ]]; then
+            backup_file "$target"
         fi
-    fi
+    done
 }
 
-install_latest_neovim() {
+apply_stow() {
     if [ "$DRY_RUN" = true ]; then
-        echo "[DRY RUN] Would install latest Neovim"
+        echo "[DRY RUN] Would run: stow --dir $DOTFILES_DIR --target $HOME --restow ${STOW_PACKAGES[*]}"
         return
     fi
 
-    echo "Installing latest Neovim..."
-    
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        # Remove existing Neovim installations
-        if command -v nvim &>/dev/null; then
-            if command -v apt-get &>/dev/null; then
-                sudo apt-get remove -y neovim neovim-runtime
-                sudo apt-get purge -y neovim
-                sudo apt autoremove -y
-            elif command -v dnf &>/dev/null; then
-                sudo dnf remove -y neovim
-            fi
-        fi
-
-        sudo apt-get install -y ninja-build gettext cmake unzip curl
-        git clone https://github.com/neovim/neovim
-        cd neovim
-        git checkout stable
-        make CMAKE_BUILD_TYPE=RelWithDebInfo
-        sudo make install
-        cd ..
-        rm -rf neovim
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        brew uninstall neovim || true
-        brew install neovim
-    fi
+    echo "Stowing packages: ${STOW_PACKAGES[*]}"
+    stow --dir "$DOTFILES_DIR" --target "$HOME" --restow "${STOW_PACKAGES[@]}"
 }
 
 # Function to install oh-my-posh
 install_oh_my_posh() {
-    check_sudo
-    
     if [ "$DRY_RUN" = true ]; then
         echo "[DRY RUN] Would install oh-my-posh"
         return
@@ -348,6 +384,8 @@ install_oh_my_posh() {
     echo "Installing oh-my-posh..."
     
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        check_sudo
+
         # For Linux systems
         if command -v curl &>/dev/null; then
             curl -s https://ohmyposh.dev/install.sh | sudo bash -s
@@ -388,20 +426,12 @@ install_oh_my_posh() {
     
     echo "oh-my-posh installed successfully"
     
-    # Create themes directory and download default theme
-    mkdir -p "$POSH_THEME_DIR"
-    if [ ! -f "$POSH_THEME_DIR/$POSH_THEME_FILE" ]; then
-        echo "Downloading default oh-my-posh theme..."
-        curl -s "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/jandedobbeleer.omp.json" \
-            -o "$POSH_THEME_DIR/$POSH_THEME_FILE"
-    fi
-
     # Update bashrc with oh-my-posh configuration
     if ! grep -q "oh-my-posh init bash" "$BASHRC"; then
         echo -e "\n# oh-my-posh configuration" >> "$BASHRC"
         echo 'export PATH=$PATH:/usr/local/bin:/usr/bin' >> "$BASHRC"
         echo 'if command -v oh-my-posh &>/dev/null; then' >> "$BASHRC"
-        echo 'eval "$(oh-my-posh init bash --config ~/dotfiles/.poshthemes/'"${POSH_THEME_FILE}"')"' >> "$BASHRC"
+        echo 'eval "$(oh-my-posh init bash --config "$HOME/.poshthemes/'"${POSH_THEME_FILE}"'")"' >> "$BASHRC"
         echo 'fi' >> "$BASHRC"
         echo "Added oh-my-posh configuration to $BASHRC"
     fi
@@ -411,23 +441,16 @@ install_oh_my_posh() {
         echo -e "\n# oh-my-posh configuration" >> "$ZSHRC"
         echo 'export PATH=$PATH:/usr/local/bin:/usr/bin' >> "$ZSHRC"
         echo 'if command -v oh-my-posh &>/dev/null; then' >> "$ZSHRC"
-        echo 'eval "$(oh-my-posh init zsh --config ~/dotfiles/.poshthemes/'"${POSH_THEME_FILE}"')"' >> "$ZSHRC"
+        echo 'eval "$(oh-my-posh init zsh --config "$HOME/.poshthemes/'"${POSH_THEME_FILE}"'")"' >> "$ZSHRC"
         echo 'fi' >> "$ZSHRC"
         echo "Added oh-my-posh configuration to $ZSHRC"
     fi
 }
 
 ensure_bin_executables() {
-    local bin_dir="$DOTFILES_DIR/bin"
+    local bin_dir="$DOTFILES_DIR/scripts/bin"
 
     if [ ! -d "$bin_dir" ]; then
-        return
-    fi
-
-    local tracked_files
-    tracked_files=$(git -C "$DOTFILES_DIR" ls-files "bin" 2>/dev/null || true)
-
-    if [ -z "$tracked_files" ]; then
         return
     fi
 
@@ -436,12 +459,7 @@ ensure_bin_executables() {
         return
     fi
 
-    while IFS= read -r relative_path; do
-        local abs_path="$DOTFILES_DIR/$relative_path"
-        if [ -f "$abs_path" ]; then
-            chmod +x "$abs_path"
-        fi
-    done <<<"$tracked_files"
+    chmod +x "$bin_dir"/*
 
     echo "Ensured executable permission on scripts in $bin_dir"
 }
@@ -449,7 +467,7 @@ ensure_bin_executables() {
 # Function to install required packages
 install_packages() {
     for package in "${REQUIRED_PACKAGES[@]}"; do
-        if ! $PKG_CHECK_CMD $package &>/dev/null; then
+        if ! package_available "$package"; then
             if [ "$DRY_RUN" = true ]; then
                 echo "[DRY RUN] Would install $package"
             else
@@ -465,9 +483,9 @@ install_packages() {
 # Function to set up shell configurations
 setup_shell_config() {
     # Set up .bashrc
-    backup_file "$BASHRC"
     if [ "$DRY_RUN" = false ]; then
-        if ! grep -q "# DOTFILES CONFIG" "$BASHRC" 2>/dev/null; then
+        if ! grep -Fq "source $DOTFILES_DIR/.bashrc" "$BASHRC" 2>/dev/null; then
+            backup_file_copy "$BASHRC"
             echo -e "\n# DOTFILES CONFIG\nsource $DOTFILES_DIR/.bashrc" >> "$BASHRC"
             echo "Updated $BASHRC to source dotfiles bashrc"
         else
@@ -476,9 +494,9 @@ setup_shell_config() {
     fi
 
     # Set up .zshrc
-    backup_file "$ZSHRC"
     if [ "$DRY_RUN" = false ]; then
-        if ! grep -q "# DOTFILES CONFIG" "$ZSHRC" 2>/dev/null; then
+        if ! grep -Fq "source $DOTFILES_DIR/.zshrc" "$ZSHRC" 2>/dev/null; then
+            backup_file_copy "$ZSHRC"
             echo -e "\n# DOTFILES CONFIG\nsource $DOTFILES_DIR/.zshrc" >> "$ZSHRC"
             echo "Updated $ZSHRC to source dotfiles zshrc"
         else
@@ -520,16 +538,15 @@ main() {
         mkdir -p "$BACKUP_DIR"
     fi
 
-    ensure_bin_executables
-
     # Detect OS and set package manager
     detect_os
 
     # Install required packages
     install_packages
 
-    # Install latest neovim release
-    install_latest_neovim
+    ensure_bin_executables
+    backup_stow_conflicts
+    apply_stow
 
     # Detect user's shell
     detect_shell
@@ -537,22 +554,12 @@ main() {
     # Set up shell configurations (bash and zsh)
     setup_shell_config
 
-    # Set up tmux configuration
-    backup_file "$TMUX_CONF"
-    create_symlink "$DOTFILES_DIR/.tmux.conf" "$TMUX_CONF"
-
     # Install oh-my-posh if not present
     if ! command -v oh-my-posh &>/dev/null; then
         install_oh_my_posh
     else
         echo "oh-my-posh is already installed"
     fi
-
-    # Set up oh-my-posh theme
-    if [ "$DRY_RUN" = false ]; then
-        mkdir -p "$POSH_THEME_DIR"
-    fi
-    create_symlink "$DOTFILES_DIR/.poshthemes/$POSH_THEME_FILE" "$POSH_THEME_DIR/$POSH_THEME_FILE"
 
     # Install tmux plugins
     if [ "$DRY_RUN" = false ]; then
@@ -565,10 +572,7 @@ main() {
     fi
 
     # Setup Neovim configuration
-    backup_file "$NVIM_CONFIG_DIR"
-    if [ "$DRY_RUN" = false ]; then
-        setup_kickstart
-    fi
+    setup_kickstart
 
     echo "Setup complete! Please restart your terminal or run: source $BASHRC"
 }
@@ -577,7 +581,7 @@ main() {
 if [ "$DRY_RUN" = true ]; then
     echo "Running in dry-run mode - no changes will be made"
     generate_preview
-    show_preview_and_confirm
+    show_preview
     exit 0
 elif [ "$PREVIEW" = true ]; then
     generate_preview
