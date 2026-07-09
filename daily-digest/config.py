@@ -150,6 +150,7 @@ DEFAULTS = {
     "repo_dir": str(HERE),
     "schedule_morning": "8:03",
     "schedule_wrap": "16:07",
+    "notify": True,
 }
 
 

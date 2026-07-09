@@ -443,6 +443,8 @@ def main():
     ap.add_argument("--init", action="store_true", help="write a starter config.toml from detected values and exit")
     ap.add_argument("--gen-launchd", action="store_true", help="generate launchd plists from config and exit")
     ap.add_argument("--gen-settings", action="store_true", help="write machine-scoped .claude/settings.local.json and exit")
+    ap.add_argument("--note-uri", action="store_true", help="print the obsidian:// URI for today's (or --date) note and exit")
+    ap.add_argument("--notify-enabled", action="store_true", help="print 1 if desktop notifications are enabled in config, else 0, and exit")
     ap.add_argument("--days", type=int, default=2)
     ap.add_argument("--date", help="YYYY-MM-DD (default today)")
     args = ap.parse_args()
@@ -460,8 +462,16 @@ def main():
     if args.gen_settings:
         gen_settings()
         return
+    if args.notify_enabled:
+        print("1" if CFG.get("notify", True) else "0")
+        return
 
     today = dt.date.fromisoformat(args.date) if args.date else dt.date.today()
+    if args.note_uri:
+        # Absolute-path form works without knowing the vault name. Fast: no gathering.
+        import urllib.parse
+        print("obsidian://open?path=" + urllib.parse.quote(str(note_path(today).resolve()), safe=""))
+        return
     if args.ensure_note:
         ensure_note(today)
     notes = gather_notes(today)

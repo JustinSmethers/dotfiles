@@ -84,6 +84,10 @@ list to override detection.
   creates a minimal dated note and still writes the Plan + Digest, just with less scaffolding.
 - **Obsidian itself** — the intended viewer, but the pipeline reads/writes plain markdown,
   so any folder works.
+- **`terminal-notifier`** (`brew install terminal-notifier`) — makes the "run finished"
+  desktop notification **clickable** (tap to open that day's Obsidian note). Without it,
+  a plain non-clickable banner is shown instead. Notifications are on by default; set
+  `notify = false` in `config.toml` to silence them.
 
 ## Manual setup steps `setup` can't do for you
 

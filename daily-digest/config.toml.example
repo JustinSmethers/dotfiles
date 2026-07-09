@@ -27,3 +27,8 @@ pr_owners = ["your-github-org"]
 # jql = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
 schedule_morning = "8:03"
 schedule_wrap = "16:07"
+
+# Desktop notification when a scheduled run finishes (macOS). Set to false to
+# silence. Clickable notifications (tap to open the note) require terminal-notifier
+# (`brew install terminal-notifier`); otherwise a non-clickable banner is shown.
+notify = true
