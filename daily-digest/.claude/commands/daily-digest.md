@@ -73,8 +73,17 @@ Produce a focused plan, don't just dump data.
    - Fill the top **`**Plan:**`** list with 3–5 concrete, prioritized checkboxes
      (e.g. `- [ ] PROJ-341: QA merged change, then move to Done`; replace `PROJ`
      with `config.ticket_prefix`).
-   - Append a `## Digest (generated <date>)` section: one line per active ticket —
-     status, the latest signal (branch/commit/PR), and a suggested next action.
+   - Append a `## Digest (generated <date>)` section. Use the nested-bullet layout
+     (like the `Plan` / `What Claude can pick up` sections), NOT one crammed line:
+     a header line per active ticket, then tab-indented sub-bullets. Format:
+     ```
+     - [PROJ-411](<jira_base>PROJ-411) *short title* — In Progress
+         - new model .sql/.yml untracked, 6 files modified
+         - Next: finish + commit -> PR
+     ```
+     Header = linked key + title + status. One fact per sub-bullet (latest signal:
+     branch/commit/PR/dirty state), and a final `- Next:` sub-bullet with the action.
+     Each sub-bullet still terse (≤ 12 words); split rather than cram.
    - Note any 🔸 flags as things to reconcile.
 3. Append a **`## What Claude can pick up (<date>)`** section — an honest self-assessment
    of the planned work (the tickets in your Plan + any active ticket). For each, use its
@@ -150,7 +159,11 @@ Produce a focused plan, don't just dump data.
 
 The note is scanned, not read. Every line you write into the note must be terse:
 
-- **One line per item. Aim for ≤ 12 words** (excluding the title). No sub-clauses.
+- **Prefer nested bullets over crammed lines.** A ticket = a header line (linked key +
+  title + status) followed by tab-indented sub-bullets, one fact/action each — rather
+  than stuffing status, git state, and next action into one line joined by `;` and `.`.
+- **Each bullet ≤ 12 words** (excluding the title). No sub-clauses — if a bullet needs
+  a `;` or a second sentence, split it into two sub-bullets.
 - **Always link the ticket key and include a short title** so numbers are never bare:
   write `[PROJ-338](<jira_base>PROJ-338) *short title*` — use the configured ticket key,
   `jira_base` + `summary` from the JSON (shorten long summaries to ~4 words). Link PRs too:
